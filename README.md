@@ -48,31 +48,38 @@ $ make
 ```yaml
 version: "3"
 services:
+
   server:
     build:
       context: ./
       dockerfile: cmd/server/Dockerfile
+    ports:
+      - "8080:8080/udp"
     networks:
-      - server-proxy
+      - public
+
   proxy:
     build:
       context: ./
       dockerfile: cmd/proxy/Dockerfile
+    ports:
+      - "1080:1080/tcp"
     networks:
-      - server-proxy
-      - client-proxy
+      - public
+      - private
+
   client:
     build:
       context: ./
       dockerfile: cmd/client/Dockerfile
-    depends_on:
-      - proxy
-      - server
+    expose:
+      - "8081/udp"
     networks:
-      - client-proxy
+      - private
+
 networks:
-  client-proxy:
+  public:
     driver: bridge
-  server-proxy:
+  private:
     driver: bridge
 ```

@@ -1,8 +1,6 @@
 package main
 
 import (
-	"io"
-	"net/http"
 	"os"
 )
 
@@ -15,17 +13,6 @@ func init() {
 		return
 	}
 
-	// got IP address of server by domain from 'server-proxy' network
-	resp, err := http.Get("http://proxy:1090?destination=server:8080")
-	if err != nil {
-		panic(err)
-	}
-
-	host, err := io.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
-	}
-
-	proxyHost = "proxy:1080"
-	remoteHost = string(host)
+	proxyHost = "host.docker.internal:1080"
+	remoteHost = "host.docker.internal:8080"
 }

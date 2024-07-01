@@ -1,7 +1,8 @@
 package main
 
 import (
-	"fmt"
+	"context"
+	"github.com/gogf/gf/v2/frame/g"
 
 	"github.com/wzshiming/socks5"
 )
@@ -9,6 +10,6 @@ import (
 func main() {
 	// TCP is used only to create a `client-proxy` connection,
 	// but all other traffic (client-proxy-server) already uses the UDP protocol
-	fmt.Println("Proxy is listening...")
-	fmt.Println(socks5.NewServer().ListenAndServe("tcp", "0.0.0.0:1080"))
+	g.Log().Info(context.Background(), "Proxy is listening...")
+	g.Log().Errorf(context.Background(), "%+v", socks5.NewServer().ListenAndServe("tcp", "0.0.0.0:1080"))
 }

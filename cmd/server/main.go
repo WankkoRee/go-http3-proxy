@@ -1,71 +1,87 @@
 package main
 
 import (
-	"crypto/rand"
-	"crypto/rsa"
+	"context"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
-	"fmt"
-	"io"
-	"math/big"
-	"net/http"
-
+	"github.com/gogf/gf/v2/errors/gerror"
+	"github.com/gogf/gf/v2/frame/g"
+	"github.com/number571/go-http3-proxy/utils"
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
+	"net"
+	"net/http"
 )
 
-func main() {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			fmt.Fprint(w, "hello, world!")
-		case http.MethodPost:
-			result, err := io.ReadAll(r.Body)
-			if err != nil {
-				fmt.Fprint(w, "error:", err.Error())
-				return
-			}
-			fmt.Fprintf(w, "echo:'%s'", string(result))
-		default:
-			fmt.Fprint(w, "method is not supported")
-		}
-	})
-
-	server := http3.Server{
-		Addr:      "0.0.0.0:8080",
-		Handler:   mux,
-		TLSConfig: generateTLSConfig(),
-	}
-
-	fmt.Println("Server is listening...")
-	fmt.Println(server.ListenAndServe())
+type Server struct {
+	server    http3.Server
+	transport *quic.Transport
+	tlsConfig *tls.Config
 }
 
-// Setup a bare-bones TLS config for the server
-func generateTLSConfig() *tls.Config {
-	key, err := rsa.GenerateKey(rand.Reader, 1024)
+func NewServer() (server *Server) {
+	tlsConfig := utils.GenerateTLSConfig()
+
+	packetConn, err := net.ListenPacket("udp", "0.0.0.0:8080")
 	if err != nil {
 		panic(err)
 	}
 
-	template := x509.Certificate{SerialNumber: big.NewInt(1)}
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	transport := &quic.Transport{Conn: packetConn}
+
+	server = &Server{
+		server: http3.Server{
+			TLSConfig: tlsConfig,
+		},
+		transport: transport,
+		tlsConfig: tlsConfig,
+	}
+
+	return
+}
+
+func (server *Server) Start() (err error) {
+	defer server.transport.Conn.Close()
+
+	server.server.Handler = server.handler()
+
+	ln, err := server.transport.ListenEarly(server.tlsConfig, nil)
 	if err != nil {
 		panic(err)
 	}
 
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
-
-	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	err = server.server.ServeListener(ln)
 	if err != nil {
-		panic(err)
+		err = gerror.Wrapf(err, "http3 server.ServeListener failed")
 	}
 
-	return &tls.Config{
-		Certificates: []tls.Certificate{tlsCert},
-		NextProtos:   []string{"http3-echo-example"},
+	return
+}
+
+func (server *Server) client() (client *http.Client) {
+	dial := func(ctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (quic.EarlyConnection, error) {
+		remoteAddr, err := net.ResolveUDPAddr("udp", addr)
+		if err != nil {
+			return nil, err
+		}
+
+		return server.transport.DialEarly(ctx, remoteAddr, tlsCfg, cfg)
 	}
+
+	client = &http.Client{
+		Transport: &http3.RoundTripper{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+			Dial: dial,
+		},
+	}
+
+	return
+}
+
+func main() {
+	server := NewServer()
+
+	g.Log().Info(context.Background(), "Server is listening...")
+	g.Log().Errorf(context.Background(), "%+v", server.Start())
 }
